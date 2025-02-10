@@ -1,0 +1,152 @@
+---
+title: "Python  Week 3"
+output:
+  html_document:
+    df_print: paged
+---
+Satya Sudha
+2/9/2025
+
+
+```{r}
+#install.packages("readxl")
+#install.packages("geosphere")
+#install.packages("microbenchmark")
+```
+
+```{r}
+# Load necessary libraries
+
+library(readxl)
+library(microbenchmark)
+
+df <- read_excel("clinics.xls")
+
+head(df)
+
+df$locLat <- as.numeric(df$locLat)
+df$locLong <- as.numeric(df$locLong)
+
+summary(df$locLat)
+summary(df$locLong)
+
+```
+
+
+```{r}
+
+df <- df[!is.na(df$locLat) & !is.na(df$locLong), ]
+
+coords <- df[, c("locLat", "locLong")]
+
+deg2rad <- function(deg) {
+  return(deg * pi / 180)
+}
+
+```
+
+```{r}
+# 1: Haversine Function (manual calculation)
+haversine <- function(lat1, lon1, lat2, lon2) {
+  km_constant <- 6371
+  
+  # Convert degrees to radians
+  lat1 <- lat1 * pi / 180
+  lon1 <- lon1 * pi / 180
+  lat2 <- lat2 * pi / 180
+  lon2 <- lon2 * pi / 180
+  
+  # Difference in latitudes and longitudes
+  dlat <- lat2 - lat1
+  dlon <- lon2 - lon1
+  
+  # Haversine formula
+  a <- sin(dlat / 2)^2 + cos(lat1) * cos(lat2) * sin(dlon / 2)^2
+  c <- 2 * asin(sqrt(a))
+  
+  # Calculate the distance in kilometers
+  km <- km_constant * c
+  return(km)}
+
+# Haversine calculation between the first clinic and all others
+distances <- sapply(1:nrow(coords), function(i) {
+  sapply(1:nrow(coords), function(j) {
+    haversine(coords[i, 1], coords[i, 2], coords[j, 1], coords[j, 2])
+  })
+})
+
+# benchmark the performance of this method
+microbenchmark::microbenchmark(
+  sapply(1:nrow(coords), function(i) {
+    sapply(1:nrow(coords), function(j) {
+      haversine(coords[i, 1], coords[i, 2], coords[j, 1], coords[j, 2])
+    })
+  }),
+  times = 10
+)
+
+```
+```{r}
+# 2: Vectorized implementation using apply()
+ref_lat <- df$locLat[1]
+ref_lon <- df$locLong[1]
+
+# Apply the haversine function row-wise
+distances <- apply(df[, c("locLat", "locLong")], 1, function(row) {
+  haversine(ref_lat, ref_lon, row[1], row[2])
+})
+
+
+apply_benchmark <- microbenchmark(
+  apply(df[, c("locLat", "locLong")], 1, function(row) {
+    haversine(ref_lat, ref_lon, row[1], row[2])
+  }),
+  times = 100
+)
+
+
+```
+
+```{r}
+# 3: Vectorized implementation using matrix operations
+
+# Convert latitudes and longitudes to radians
+coords_rad <- matrix(c(df$locLat, df$locLong) * pi / 180, ncol = 2)
+
+# Reference point in radians
+ref_lat_rad <- df$locLat[1] * pi / 180
+ref_lon_rad <- df$locLong[1] * pi / 180
+
+# Differences in latitudes and longitudes
+dlat <- coords_rad[, 1] - ref_lat_rad
+dlon <- coords_rad[, 2] - ref_lon_rad
+
+# Haversine formula using matrix operations
+a <- sin(dlat / 2)^2 + cos(ref_lat_rad) * cos(coords_rad[, 1]) * sin(dlon / 2)^2
+c <- 2 * asin(sqrt(a))
+
+# Calculate the distances in kilometers
+distances <- 6371 * c
+
+# Add the distances as a new column to the dataframe
+df$distance_to_ref <- distances
+
+# Vectorized implementation using matrix operations
+matrix_benchmark <- microbenchmark(
+  {
+    coords_rad <- matrix(c(df$locLat, df$locLong) * pi / 180, ncol = 2)
+    ref_lat_rad <- df$locLat * pi / 180
+    ref_lon_rad <- df$locLong * pi / 180
+    dlat <- coords_rad[, 1] - ref_lat_rad
+    dlon <- coords_rad[, 2] - ref_lon_rad
+    a <- sin(dlat / 2)^2 + cos(ref_lat_rad) * cos(coords_rad[, 1]) * sin(dlon / 2)^2
+    c <- 2 * asin(sqrt(a))
+    distances <- 6371 * c
+  },
+  times = 100
+)
+
+# Return results for comparison
+list(apply_benchmark = apply_benchmark, matrix_benchmark = matrix_benchmark)
+
+```
