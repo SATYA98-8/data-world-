@@ -1,0 +1,171 @@
+---
+title: "Week 06 - Genetic Algorithm Assignment"
+output: html_notebook
+name: Satya Sudha
+---
+Date: 3/2/2025
+
+**Assignment Details:**
+
+In this assignment, you will be applying the genetic algorithm approach for solving a problem involving locations of healthcare facilities (building on the ideas covered in one of this week's discussion articles and (VIDEO TO COME)).
+
+# Install Libraries
+
+```{r}
+#install.packages("GA")
+#install.packages("sf")
+```
+
+# Load Libraries
+
+In this section, we load the necessary libraries.
+
+```{r}
+library(data.table)
+library(geosphere)
+library(GA)
+library(sf)
+```
+* data.table: A package for working with datasets(load or edit).
+* geosphere: This package is used for Haversine formula
+* GA: This package is for using Genetic Algorithms.
+* sf: Important package for spatial dataset handling.
+
+# Load Population Data
+
+Here we load the population data and extracts a random sample of the population data for next step.
+
+```{r}
+# Load the population data
+pop.data <- fread("Mo_pop_Sim.csv")
+
+# Create a smaller sample (0.0001 fraction of the full data)
+frac <- 0.0001
+small.data <- pop.data[sample(1:nrow(pop.data), size = round(nrow(pop.data) * frac))]
+
+# Check
+small.data
+```
+
+Now we use data.table package function fread to load data from "Mo_pop_Sim.csv" and into population data. A smaller random sample of data is generated from the original dataset through the selection of 0.0001 (or 1/10,000th) of the total rows by random sampling of rows. This sample or croped data will be used as the small.data object for forthcoming procedures.
+
+# Load FQHC Data
+
+Here, we load the FQHC (Federally Qualified Health Center) location data and extract the necessary coordinates.
+
+```{r}
+# Load the FQHC data
+data_path <- 'MO_2018_Federally_Qualified_Health_Center_Locations'
+fqhc <- data.table(as.data.frame(st_read(data_path,
+                                               'MO_2018_Federally_Qualified_Health_Center_Locations')))
+
+# Extract the coordinates of the FQHCs
+cc <- fqhc[, .(Longitude, Latitude)]
+
+# Extract the coordinates of the population sample
+pp <- small.data[, .(long, lat)]
+
+cc
+```
+
+```{r}
+pp
+```
+
+This part describes how to bring FQHC data from its specified file location. The sf package enables reading of data through its st_read() function to handle spatial data formats. The data goes through conversion into a data.table format for improved handling. Finally We obtain the longitude and latitude values from the FQHC data which we put into distinct objects.
+
+# Calculate Average Distance for Each FQHC
+
+Now we calculate the average distance from each FQHC to all population points. This distance is used to determine the effectiveness of the FQHC in terms of proximity to the population.
+
+```{r}
+# Function to calculate average distance for a single FQHC
+
+avg_dist <- function(fqhc_idx) {
+  fqhc_coord <- cc[fqhc_idx, ]
+  distances <- distHaversine(matrix(c(fqhc_coord$Longitude, fqhc_coord$Latitude), ncol=2),
+                            matrix(c(pp$long, pp$lat), ncol=2))
+  return(mean(distances) / 1609.34)  # Convert meters to miles
+}
+
+# Calculate the average distances for all FQHCs
+avg_distances <- sapply(1:nrow(cc), avg_dist)
+
+# Add the average distance to the FQHC data
+fqhc$avg_distance <- avg_distances
+```
+We are using Average Closeness Score as the primary metric for selecting the 8 FQHCs. 
+
+In this section, we define a function avg_dist that calculates the average distance between a given FQHC (Federally Qualified Health Center) and all the population points. And apply to all FQHCs in the dataset. 
+
+Why? - 
+The average closeness score method functions as the selected approach since it quantifies the distance between healthcare facilities and their patient population. The minimum average distance calculation between residents and FQHCs establishes optimal mental health service locations which allow most people to use these facilities without needing extended commuting distances. The accessibility of healthcare abilities influences patient service utilization together with outcome quality especially for healthcare facilities.
+
+The approach bases its assumption on the idea that residential proximity affects healthcare access because patients seek closer medical facilities near their homes. People's ability to reach healthcare facilities is estimated through measuring average distance. Additionally, all residences are treated equally in importance, meaning the algorithm focuses on minimizing the average distance for all residents, without prioritizing areas with higher population density.
+
+
+# Define the Fitness Function
+The fitness function is designed to minimize the total average distance for the selected FQHCs. We aim to reduce the distance between the FQHCs and the population.
+
+```{r}
+# Fitness function to minimize total average distance for selected FQHCs
+fitf <- function(indices) {
+  selected_fqhc <- cc[indices, ]
+  total_avg_distance <- 0
+  
+  # Calculate total average distance for the selected FQHCs
+  for (i in 1:nrow(selected_fqhc)) {
+    fqhc_coord <- selected_fqhc[i, ]
+    distances <- distHaversine(matrix(c(fqhc_coord$Longitude, fqhc_coord$Latitude), ncol=2),
+                               matrix(c(pp$long, pp$lat), ncol=2))
+    total_avg_distance <- total_avg_distance + mean(distances) / 1609.34
+  }
+  
+  return(-total_avg_distance)  # Return negative because GA maximizes fitness
+}
+```
+
+The fitf function operates as a tool to determine the combined average distance measurement between selected FQHCs. The input consists of selected FQHCs' indices while it performs Haversine distance calculations through each FQHC to all population points followed by an average distance summation. The algorithm produces a negative score because maximization of fitness matches with minimizing the distance which leads to better fitness results.
+
+# Genetic Algorithm Setup and Execution
+Now the Important part of the assignment, defining the parameters for the genetic algorithm and runing it. The genetic algorithm tries to minimize the total average distance by selecting the best FQHCs.
+
+```{r}
+# Define the GA parameters
+nf <- nrow(cc)
+n_select <- 8  # Number of FQHCs to select
+
+# Run the genetic algorithm
+ga_result <- ga(
+  type = "permutation", 
+  fitness = fitf,
+  lower = 1, upper = nf,
+  popSize = 50, maxiter = 10, run = 10,
+  pmutation = 0.2, 
+  crossover = gaperm_oxCrossover,  # Corrected Crossover Function
+  elitism = 2
+)
+```
+The ga function executes the GA while being configured with "permutation" type to select various permutations of FQHCs. The fitf function calculates the overall average distance in the fitness calculation process. The algorithm will run a population of 50 FQHCs across 10 iterations within 10 runs before terminating. Mutations are applied with a 0.2 probability and gaperm_oxCrossover serves as the crossover operator in the genetic algorithm system together with elitism which preserves the two best solutions.
+
+The GA identifies the group of FQHCs which produces minimal average population distance to improve accessibility.
+
+# Extract and Print the Best Solution
+
+After the genetic algorithm runs, finally we extract the best solution (the set of FQHCs) and print the relevant details, including the average distance.
+
+```{r}
+# Extract the best solution
+best <- ga_result@solution[1, ]
+final <- fqhc[best, .(OBJECTID, Facility, City, avg_distance)]
+
+# best FQHC locations
+final
+```
+This final data table will show the best FQHCs.
+
+# Conclusion
+
+The purpose of this assignment was to utilize genetic algorithm (GA) that identified 8 Federally Qualified Health Centers (FQHCs) in Missouri to offer specialized mental health services while achieving maximum accessibility. The fitness function operated to decrease the average distance between residential locations and the FQHCs which helped ensure healthcare accessibility for all. The decision-making process incorporated three main assumptions which combined population distribution data as population representative while every residence was treated similarly and close healthcare facilities would be used more often. The GA conducted a search that produced a selection of FQHCs to achieve minimal travel distances as well as maximal service availability. The approach demonstrates how healthcare location matters in accessibility and delivers an efficient strategy to optimize service delivery.
+
+Mainly I understood how applying the genetic algorithm approach for solving a real world problem could help in many ways.
