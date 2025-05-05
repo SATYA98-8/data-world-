@@ -1,0 +1,138 @@
+---
+title: "XGBoost Training on Synthetic Data"
+output: html_notebook
+---
+
+This notebook generates synthetic datasets and trains an XGBoost model with specified parameters.
+
+```{r setup, include=FALSE}
+# Install necessary packages if you haven't already
+# install.packages("xgboost")
+
+library(xgboost)
+
+```
+
+
+```{r}
+# --- Configuration ---
+data_sizes <- c(1000, 10000, 100000)
+# Construct file names based on the provided naming convention
+file_names <- paste0("synthetic_data_", data_sizes / 1000, "k.csv")
+validation_split_ratio <- 0.2
+random_seed <- 42 # Match Python's random_state for split consistency
+
+# XGBoost Parameters (from the last weeks demo code)
+xgb_params <- list(
+  max.depth = 2,
+  eta = 1,          # High learning rate
+  nthread = 2,
+  objective = "reg:squarederror" # Regression objective
+)
+nrounds <- 5          # Low number of boosting rounds
+
+# List to store results
+results_list <- list()
+
+# Feature and target names (matching the columns in the CSV files)
+feature_names <- c("VarA", "VarB", "VarC", "VarD")
+target_name <- "Target"
+
+```
+
+```{r}
+# --- Main Loop for Data Sizes ---
+for (i in seq_along(data_sizes)) {
+  size <- data_sizes[i]
+  file_name <- file_names[i] # Get the corresponding file name
+  
+  cat(paste("\n--- Processing Data Size:", size, " (File:", file_name, ") ---\n"))
+  
+  # 1. Check if file exists and Load data
+  if (!file.exists(file_name)) {
+    cat(paste("ERROR: Data file", file_name, "not found.\n"))
+    # Add placeholder results if file is missing
+    results_list[[length(results_list) + 1]] <- data.frame(
+      `Data size` = size,
+      Configuration = "XGBoost (Demo Params)",
+      `Training error (MSE)` = NA,
+      `Validation error (MSE)` = NA,
+      `Time of execution (s)` = NA,
+      check.names = FALSE 
+    )
+    next # Skip to the next data size
+  }
+  
+  # Load the CSV file
+  df <- read.csv(file_name)
+  cat("  Data loaded successfully.\n")
+  
+  # Verify column names (optional but good practice)
+  if(!all(c(feature_names, target_name) %in% names(df))) {
+      cat(paste("ERROR: Required columns missing in", file_name, ". Check header.\n"))
+      cat("Expected:", paste(c(feature_names, target_name), collapse=", "), "\n")
+      cat("Found:", paste(names(df), collapse=", "), "\n")
+      next 
+  }
+  
+  cat("  Target variable summary:\n")
+  print(summary(df[[target_name]])) # Use double brackets for column access by variable
+  
+  # 2. Split data into training and validation sets
+  set.seed(random_seed) # Set seed for reproducible split
+  n_obs <- nrow(df)
+  n_train <- floor((1 - validation_split_ratio) * n_obs)
+  train_indices <- sample(1:n_obs, size = n_train, replace = FALSE)
+  val_indices <- setdiff(1:n_obs, train_indices)
+  
+  # Use matrix subsetting directly from the loaded data frame
+  train_data <- as.matrix(df[train_indices, feature_names])
+  val_data <- as.matrix(df[val_indices, feature_names])
+  
+  train_label <- df[[target_name]][train_indices]
+  val_label <- df[[target_name]][val_indices]
+  
+  # 3. XGBoost Training
+  cat("  Training XGBoost model...\n")
+  start_time <- Sys.time()
+  
+  bst <- xgboost(data = train_data,
+                 label = train_label,
+                 params = xgb_params, # Pass params list
+                 nrounds = nrounds,    # Pass nrounds
+                 verbose = 0           # Suppress XGBoost messages
+                ) 
+                
+  end_time <- Sys.time()
+  execution_time <- as.numeric(difftime(end_time, start_time, units = "secs"))
+  cat("  XGBoost training finished.\n")
+  
+  # 4. Evaluation
+  pred_train <- predict(bst, train_data)
+  pred_val <- predict(bst, val_data)
+  
+  train_mse <- mean((train_label - pred_train)^2)
+  val_mse <- mean((val_label - pred_val)^2)
+  
+  cat(paste("    Final Training MSE:", format(train_mse, scientific = FALSE, digits = 4), "\n"))
+  cat(paste("    Final Validation MSE:", format(val_mse, scientific = FALSE, digits = 4), "\n"))
+  cat(paste("    Execution Time:", round(execution_time, 2), "seconds\n"))
+  
+  # 5. Store results
+  results_list[[length(results_list) + 1]] <- data.frame(
+    `Data size` = size,
+    Configuration = "XGBoost (Demo Params)", # Indicate parameters used
+    `Training error (MSE)` = train_mse,
+    `Validation error (MSE)` = val_mse,
+    `Time of execution (s)` = execution_time,
+    check.names = FALSE # Prevent R from changing column names
+  )
+  
+} # End of loop
+
+```
+
+
+
+
+

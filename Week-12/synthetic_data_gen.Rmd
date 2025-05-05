@@ -1,0 +1,55 @@
+---
+title: "R Notebook to Generate data"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. 
+
+```{r}
+# Generate synthetic dataset
+create_synthetic_data <- function(sample_size){
+  set.seed(30)  # For reproducibility
+  
+  VarA <- rnorm(sample_size, mean = 120, sd = 23)
+  VarB <- rgamma(sample_size, shape = 23, scale = 5)
+  VarC <- rbinom(sample_size, size = floor(sample_size * 0.1), prob = 0.8)
+  VarD <- runif(sample_size, min = -2000, max = 30000)
+  
+  # Modified response variable with interaction and non-linearity
+  Target <- 2.3 * VarA + VarB^1.4 + 50 * log(VarC + 1) + 0.01 * VarD +
+            VarC * (0.04 * VarD) + rnorm(sample_size, mean = 100, sd = 23)
+
+  return(data.frame(VarA, VarB, VarC, VarD, Target))
+}
+
+```
+
+
+```{r}
+# Generate and save 1k dataset
+data_small <- create_synthetic_data(1000)
+write.csv(data_small, "synthetic_data_1k.csv", row.names = FALSE)
+print("Generated synthetic_data_1k.csv")
+summary(data_small)
+
+```
+
+
+```{r}
+# Generate and save 10k dataset
+data_medium <- create_synthetic_data(10000)
+write.csv(data_medium, "synthetic_data_10k.csv", row.names = FALSE)
+print("Generated synthetic_data_10k.csv")
+summary(data_medium)
+
+```
+
+```{r}
+# Generate and save 100k dataset
+data_large <- create_synthetic_data(100000)
+write.csv(data_large, "synthetic_data_100k.csv", row.names = FALSE)
+print("Generated synthetic_data_100k.csv")
+summary(data_large)
+
+```
+
